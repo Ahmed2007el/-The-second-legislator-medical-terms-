@@ -8,9 +8,9 @@ export const validateApiKey = async (apiKey: string): Promise<boolean> => {
   if (!apiKey) return false;
   try {
     const ai = getClient(apiKey);
-    // Simple lightweight check
+    // Use standard flash for validation as it's the main driver
     await ai.models.generateContent({
-      model: "gemini-2.5-flash-lite-latest",
+      model: "gemini-2.5-flash",
       contents: "ping",
     });
     return true;
@@ -32,8 +32,8 @@ export const searchMedicalTerm = async (
     : `Explain the medical term "${term}" simply but adequately. Use reliable and scientific sources. The explanation must be in English.`;
 
   try {
-    // 1. Get Text Explanation with Grounding
-    const textResponse = await ai.models.generateContent({
+    // 1. Text Explanation with Grounding (Start parallel)
+    const textPromise = ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents: prompt,
       config: {
@@ -41,41 +41,85 @@ export const searchMedicalTerm = async (
       }
     });
 
+    // 2. Generate Illustration (Start parallel)
+    const imagePromise = (async () => {
+        try {
+            // Step A: Generate a descriptive prompt for the image model
+            // Enhanced prompt engineering to ensure medical accuracy using Google Search Grounding
+            const descriptionPrompt = `You are a medical visualization expert. 
+            First, use Google Search to find authoritative visual descriptions for the medical term: "${term}".
+            Then, based on the search results, create a precise image generation prompt for a medical textbook illustration.
+            
+            Strictly follow these guidelines:
+            1. Accuracy: Focus EXCLUSIVELY on the anatomical structure "${term}". Isolate the specific organ or part. (Example: If term is "Larynx", show ONLY the Larynx, do NOT show the Lungs).
+            2. Detail: Specify the precise anatomical view (e.g., "Anterior view", "Cross-section", "Cutaway").
+            3. Style: "Medical anatomy chart, white background, clean lines, high definition".
+            4. Labelling: The user explicitly requests structure identification. Include "Anatomical labels with leader lines pointing to key parts" in the prompt.
+            5. Translation: Ensure the final prompt is in English.
+            
+            Output ONLY the raw English prompt text.`;
+
+            const descResponse = await ai.models.generateContent({
+                model: "gemini-2.5-flash",
+                contents: descriptionPrompt,
+                config: { tools: [{ googleSearch: {} }] } // Critical: Grounding for accuracy
+            });
+            
+            let enhancedPrompt = descResponse.text || `Medical illustration of ${term}, labeled anatomical chart, white background`;
+            // Clean up prompt
+            enhancedPrompt = enhancedPrompt.replace(/^Here is (the|a) prompt:?\s*/i, '').replace(/^Prompt:\s*/i, '').replace(/"/g, '');
+
+            // Helper to try generating with a specific model
+            const generateImage = async (modelName: string) => {
+                return await ai.models.generateContent({
+                    model: modelName,
+                    contents: { parts: [{ text: enhancedPrompt }] },
+                    config: {
+                        imageConfig: {
+                            aspectRatio: "4:3",
+                        }
+                    }
+                });
+            };
+
+            // Step B: Generate the image using the enhanced prompt with fallback
+            let imageResponse;
+            try {
+                // Try High Quality Pro Model first
+                imageResponse = await generateImage('gemini-3-pro-image-preview');
+            } catch (e: any) {
+                 const errStr = JSON.stringify(e, Object.getOwnPropertyNames(e));
+                 // Fallback to Flash Image if Pro is permission denied (403), not found (404), or quota exceeded (429)
+                 if (errStr.includes('403') || errStr.includes('PERMISSION_DENIED') || 
+                     errStr.includes('404') || errStr.includes('NOT_FOUND') ||
+                     errStr.includes('429')) {
+                    console.warn(`Pro model failed, falling back to Flash Image. Error: ${e.message}`);
+                    imageResponse = await generateImage('gemini-2.5-flash-image');
+                 } else {
+                    throw e;
+                 }
+            }
+
+            for (const part of imageResponse?.candidates?.[0]?.content?.parts || []) {
+                if (part.inlineData) {
+                    return `data:image/png;base64,${part.inlineData.data}`;
+                }
+            }
+        } catch (imgError) {
+            console.error("Image generation failed:", imgError);
+            return undefined;
+        }
+    })();
+
+    // Wait for both
+    const [textResponse, imageUrl] = await Promise.all([textPromise, imagePromise]);
+
     const explanation = textResponse.text || (language === 'ar' ? "لم يتم العثور على شرح." : "No explanation found.");
     
     // Extract sources if available
     const sources = textResponse.candidates?.[0]?.groundingMetadata?.groundingChunks
       ?.map((chunk: any) => chunk.web ? { title: chunk.web.title, uri: chunk.web.uri } : null)
       .filter((source: any) => source !== null) || [];
-
-    // 2. Generate Illustration (Parallel or Sequential - Sequential safer for error handling)
-    // Using gemini-3-pro-image-preview for high quality as requested
-    let imageUrl: string | undefined = undefined;
-    
-    try {
-        const imagePrompt = `A clean, scientific, educational medical illustration of: ${term}. White background, anatomical style.`;
-        const imageResponse = await ai.models.generateContent({
-            model: 'gemini-3-pro-image-preview',
-            contents: {
-                parts: [{ text: imagePrompt }]
-            },
-            config: {
-                imageConfig: {
-                    aspectRatio: "4:3",
-                }
-            }
-        });
-
-        for (const part of imageResponse.candidates?.[0]?.content?.parts || []) {
-            if (part.inlineData) {
-                imageUrl = `data:image/png;base64,${part.inlineData.data}`;
-                break;
-            }
-        }
-    } catch (imgError) {
-        console.error("Image generation failed:", imgError);
-        // We don't fail the whole request if image fails, just return text
-    }
 
     return {
       term,

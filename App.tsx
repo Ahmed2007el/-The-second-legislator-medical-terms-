@@ -63,21 +63,18 @@ const App: React.FC = () => {
     setIsApiKeyModalOpen(true);
   };
 
-  const handleSearch = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!query.trim() || !apiKey) return;
+  const executeSearch = async (searchTerm: string) => {
+    if (!searchTerm.trim() || !apiKey) return;
 
     setLoading(true);
     setResult(null);
-    setMessages([]); // Reset chat for new term
+    setMessages([]); 
 
     try {
-      const data = await searchMedicalTerm(apiKey, query, language);
-      
+      const data = await searchMedicalTerm(apiKey, searchTerm, language);
       const newResult = data as SearchResult;
       setResult(newResult);
       
-      // Add to history
       const newHistoryItem: HistoryItem = {
         id: Date.now().toString(),
         term: newResult.term,
@@ -86,7 +83,7 @@ const App: React.FC = () => {
       
       setHistory(prev => {
         const filtered = prev.filter(h => h.term.toLowerCase() !== newResult.term.toLowerCase());
-        return [newHistoryItem, ...filtered].slice(0, 50); // Keep last 50
+        return [newHistoryItem, ...filtered].slice(0, 50); 
       });
 
     } catch (error) {
@@ -95,6 +92,11 @@ const App: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    executeSearch(query);
   };
 
   const handleChatSend = async (e: React.FormEvent) => {
@@ -118,9 +120,6 @@ const App: React.FC = () => {
         role: m.role,
         parts: [{ text: m.text }]
       }));
-
-      // Add context about the current term in the system prompt inside the service
-      // But we pass the message history
       
       const responseText = await sendChatMessage(apiKey, apiHistory, userMsg.text, language, result.term);
 
@@ -143,20 +142,7 @@ const App: React.FC = () => {
   const restoreFromHistory = (item: HistoryItem) => {
     setQuery(item.term);
     setShowHistory(false);
-    // Auto trigger search logic logic needs query in state, but handleSearch uses state 'query' which isn't updated instantly.
-    // Better to just set query and let user click or useEffect. 
-    // To make it instant, we call the async function directly with the term.
-    setQuery(item.term);
-    // Small hack to ensure state update before search
-    setTimeout(() => {
-        const fakeEvent = { preventDefault: () => {} } as React.FormEvent;
-        // We need to call the search logic with the specific term, but handleSearch uses closure state.
-        // Let's refactor search slightly or just duplicate the simple call
-        searchMedicalTerm(apiKey, item.term, language).then(data => {
-            setResult(data as SearchResult);
-            setMessages([]);
-        }).catch(err => console.error(err));
-    }, 0);
+    executeSearch(item.term);
   };
 
   const clearHistory = () => {
@@ -431,7 +417,7 @@ const App: React.FC = () => {
                     )}
                     {result.imageUrl && (
                         <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
-                            <p className="text-white text-sm font-medium">AI Generated Illustration using Gemini 3 Pro</p>
+                            <p className="text-white text-sm font-medium">AI Generated Medical Illustration</p>
                         </div>
                     )}
                   </div>

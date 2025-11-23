@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Key, Lock, AlertCircle } from 'lucide-react';
+import { Key, AlertCircle } from 'lucide-react';
 
 interface ApiKeyModalProps {
   isOpen: boolean;
@@ -37,42 +37,41 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ isOpen, onSave, langua
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
       <div 
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 overflow-hidden relative"
+        className="bg-black rounded-2xl shadow-2xl w-full max-w-md p-6 overflow-hidden relative border border-slate-800"
         dir={isRtl ? 'rtl' : 'ltr'}
       >
-        <div className="flex items-center gap-3 mb-4 text-medical-600">
-            <div className="p-3 bg-medical-50 rounded-full">
+        <div className="flex items-center gap-3 mb-4 text-medical-500">
+            <div className="p-3 bg-slate-900 rounded-full border border-slate-800">
                 <Key className="w-6 h-6" />
             </div>
-            <h2 className="text-xl font-bold text-slate-800">{text.title}</h2>
+            <h2 className="text-xl font-bold text-white">{text.title}</h2>
         </div>
 
-        <p className="text-slate-600 mb-6 text-sm leading-relaxed">
+        <p className="text-slate-300 mb-6 text-sm leading-relaxed">
           {text.desc}
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
+            <label className="block text-sm font-medium text-slate-300 mb-1">
               {text.label}
             </label>
             <div className="relative">
-                <input
-                    type="password"
+                <textarea
                     value={inputKey}
                     onChange={(e) => {
                         setInputKey(e.target.value);
                         setError('');
                     }}
                     placeholder={text.placeholder}
-                    className="w-full pl-10 pr-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-medical-500 focus:border-medical-500 transition-all outline-none"
+                    rows={4}
+                    className="w-full p-3 border border-slate-700 bg-black text-white rounded-lg focus:ring-2 focus:ring-medical-500 focus:border-medical-500 transition-all outline-none placeholder-slate-500 resize-none font-mono text-sm"
                 />
-                <Lock className={`absolute w-4 h-4 text-slate-400 top-3.5 ${isRtl ? 'right-3' : 'left-3'}`} />
             </div>
             {error && (
-                <div className="flex items-center gap-2 mt-2 text-red-500 text-xs">
+                <div className="flex items-center gap-2 mt-2 text-red-400 text-xs">
                     <AlertCircle className="w-3 h-3" />
                     <span>{error}</span>
                 </div>
@@ -87,16 +86,16 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ isOpen, onSave, langua
           </button>
         </form>
 
-        <div className="mt-6 pt-4 border-t border-slate-100 flex flex-col gap-2 text-center">
+        <div className="mt-6 pt-4 border-t border-slate-800 flex flex-col gap-2 text-center">
             <a 
                 href="https://aistudio.google.com/app/apikey" 
                 target="_blank" 
                 rel="noreferrer"
-                className="text-xs text-medical-600 hover:text-medical-800 underline font-medium"
+                className="text-xs text-medical-500 hover:text-medical-400 underline font-medium"
             >
                 {text.linkText}
             </a>
-            <span className="text-[10px] text-slate-400">{text.privacy}</span>
+            <span className="text-[10px] text-slate-500">{text.privacy}</span>
         </div>
       </div>
     </div>
