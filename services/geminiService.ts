@@ -38,9 +38,9 @@ export const generateMedicalIllustration = async (
             
             Guidelines:
             1. **Translation**: If the term "${term}" is not in English, translate it to English first.
-            2. **Style**: "High-quality medical vector illustration, clean lines, educational anatomy chart, white background, scientific accuracy, Netter style but digital and clean, no blood, no gore."
+            2. **Style**: "Vector medical illustration, simple clean lines, white background, educational schematic, Netter style but simplified, no realistic textures."
             3. **Safety**: "Anatomical schema only, NO blood, NO realistic gore, educational purpose".
-            4. **Negative Prompt**: "Avoid: photorealistic flesh, blood, open wounds, surgical gore, disturbing imagery."
+            4. **Negative Prompt**: "Avoid: photorealistic flesh, blood, open wounds, surgical gore, disturbing imagery, complex textures."
             5. **Focus**: Isolated structure with clear leader lines if applicable.
             `;
         } else {
@@ -49,7 +49,7 @@ export const generateMedicalIllustration = async (
             
             Guidelines:
             1. **Translation**: If the term "${term}" is not in English, translate it to English first.
-            2. **Style**: "3D anatomical render, translucent medical model style, blue and grey aesthetic, clean studio lighting, high detail, educational purpose, no visceral textures."
+            2. **Style**: "3D abstract medical render, translucent glass style, blue and grey color palette, clean studio lighting, minimalism."
             3. **Safety**: "Abstract representation, clean, sterile, NO blood, NO photorealism".
             4. **Negative Prompt**: "Avoid: photorealistic flesh, blood, open wounds, surgical gore, disturbing imagery."
             `;
@@ -67,12 +67,11 @@ export const generateMedicalIllustration = async (
             const descResponse = await ai.models.generateContent({
                 model: "gemini-2.5-flash",
                 contents: descriptionPrompt,
-                config: { tools: [{ googleSearch: {} }] } 
             });
             enhancedPrompt = descResponse.text || "";
         } catch (e) {
             console.warn("Prompt generation failed, using fallback");
-            enhancedPrompt = `Medical diagram of ${term}, educational, white background, no gore`;
+            enhancedPrompt = `Medical vector diagram of ${term}, white background, educational, clean lines`;
         }
         
         // Clean up the prompt string
@@ -83,33 +82,29 @@ export const generateMedicalIllustration = async (
 
         // Step B: Generate the image
         const generateImage = async (modelName: string) => {
-            // Use tools for Pro model if in textbook mode (grounding)
-            const useTools = (modelName.includes('pro') && mode === 'textbook');
-            const tools = useTools ? [{ googleSearch: {} }] : undefined;
-
             return await ai.models.generateContent({
                 model: modelName,
                 contents: { parts: [{ text: enhancedPrompt }] },
                 config: {
                     imageConfig: {
                         aspectRatio: "4:3",
-                    },
-                    tools: tools
+                    }
+                    // Tools removed for Flash compatibility and to avoid permission issues
                 }
             });
         };
 
         let imageResponse;
         try {
-            // Prioritize Pro for quality
-            imageResponse = await generateImage('gemini-3-pro-image-preview');
+            // Use Flash Image for speed and better availability (avoids 403 Permission Denied on Pro)
+            imageResponse = await generateImage('gemini-2.5-flash-image');
         } catch (e: any) {
-             console.warn(`Pro model failed (${e.message}), falling back to Flash Image.`);
+             console.warn(`Flash model failed (${e.message}), trying Pro as backup.`);
              try {
-                // Fallback to Flash Image which is faster/cheaper but less detailed
-                imageResponse = await generateImage('gemini-2.5-flash-image');
+                // Only try Pro if Flash fails (though Pro might fail with 403 too depending on key)
+                imageResponse = await generateImage('gemini-3-pro-image-preview');
              } catch (fallbackError) {
-                console.error("Fallback image generation also failed", fallbackError);
+                console.error("All image generation attempts failed", fallbackError);
                 return undefined;
              }
         }
@@ -167,6 +162,7 @@ export const searchMedicalTerm = async (
        Use reliable scientific sources (e.g., Gray's Anatomy, Mayo Clinic). The tone should be educational and professional.`;
 
   try {
+    // Generate text explanation
     const textPromise = ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents: prompt,
@@ -175,6 +171,7 @@ export const searchMedicalTerm = async (
       }
     });
 
+    // Generate image in parallel
     const imagePromise = generateMedicalIllustration(apiKey, term, imageMode);
 
     const [textResponse, imageUrl] = await Promise.all([textPromise, imagePromise]);
