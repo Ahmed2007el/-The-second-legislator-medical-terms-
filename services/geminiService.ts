@@ -29,43 +29,51 @@ export const generateMedicalIllustration = async (
     const ai = getClient(apiKey);
     try {
         // Step A: Generate a descriptive prompt for the image model
+        // We ask Gemini to translate and optimize the prompt to avoid safety triggers (gore).
         let descriptionPrompt = `You are a medical visualization expert. `;
         
         if (mode === 'textbook') {
             descriptionPrompt += `
-            First, use Google Search to find authoritative visual descriptions for the medical term: "${term}" from sources like Gray's Anatomy or Netter.
-            Then, create a precise image generation prompt for a medical textbook illustration.
+            Task: Create a safe, educational image generation prompt for the medical term: "${term}".
             
-            Strictly follow these guidelines:
-            1. **Isolation**: Focus EXCLUSIVELY on the "${term}". Isolate the organ/structure.
-            2. **Style**: "Classic scientific anatomy illustration, white background, detailed, realistic colors".
-            3. **Labelling**: The user explicitly demands "Anatomical labels with clear leader lines pointing to key parts".
-            4. **Context**: Do not include unrelated surrounding organs unless absolutely necessary for orientation.
+            Guidelines:
+            1. **Translation**: If the term "${term}" is not in English, translate it to English first.
+            2. **Style**: "Classic scientific medical diagram, pen and ink style, clean white background".
+            3. **Safety**: "Anatomical schema only, NO blood, NO realistic gore, educational purpose".
+            4. **Focus**: Isolated structure with clear leader lines if applicable.
             `;
         } else {
             descriptionPrompt += `
-            Create a highly detailed, photorealistic 3D medical visualization prompt for: "${term}".
+            Task: Create a prompt for an abstract, artistic medical visualization for: "${term}".
             
             Guidelines:
-            1. **Style**: Cinematic lighting, 3D render, hyper-realistic textures.
-            2. **Presentation**: Artistic but anatomically correct. Dramatic close-ups are allowed.
-            3. **Background**: Clean, professional studio environment or dark medical gradient.
+            1. **Translation**: If the term "${term}" is not in English, translate it to English first.
+            2. **Style**: "Futuristic medical art, translucent glowing materials, blue and teal color palette, 3D render".
+            3. **Safety**: "Abstract representation, clean, sterile, NO blood, NO photorealism".
             `;
         }
 
         if (userInstructions) {
-             descriptionPrompt += `\n\nCRITICAL USER INSTRUCTION: The user wants to modify the image with this specific request: "${userInstructions}". Ensure the generated prompt explicitly includes these details to satisfy the user.`;
+             descriptionPrompt += `\n\nUSER REQUEST: Modify the visualization with: "${userInstructions}". Ensure the result remains safe and educational.`;
         }
 
         descriptionPrompt += `\n\nOutput ONLY the raw English prompt text.`;
 
-        const descResponse = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: descriptionPrompt,
-            config: { tools: [{ googleSearch: {} }] } // Always use search for prompt accuracy
-        });
+        let enhancedPrompt = "";
+        try {
+            // We use Flash for the prompt engineering logic
+            const descResponse = await ai.models.generateContent({
+                model: "gemini-2.5-flash",
+                contents: descriptionPrompt,
+                config: { tools: [{ googleSearch: {} }] } 
+            });
+            enhancedPrompt = descResponse.text || "";
+        } catch (e) {
+            console.warn("Prompt generation failed, using fallback");
+            enhancedPrompt = `Medical diagram of ${term}, educational, white background, no gore`;
+        }
         
-        let enhancedPrompt = descResponse.text || `Medical illustration of ${term}, labeled anatomical chart, white background, isolated structure`;
+        // Clean up the prompt string
         enhancedPrompt = enhancedPrompt.replace(/^Here is (the|a) prompt:?\s*/i, '').replace(/^Prompt:\s*/i, '').replace(/"/g, '');
 
         // Step B: Generate the image
@@ -88,24 +96,24 @@ export const generateMedicalIllustration = async (
 
         let imageResponse;
         try {
-            // For 'textbook' mode, prioritize Pro + Search. For 'ai' mode, we can try Pro for quality or Flash.
-            // Let's default to Pro for quality in both cases if possible, falling back to Flash.
+            // Prioritize Pro for quality
             imageResponse = await generateImage('gemini-3-pro-image-preview');
         } catch (e: any) {
-             const errStr = JSON.stringify(e, Object.getOwnPropertyNames(e));
-             if (errStr.includes('403') || errStr.includes('PERMISSION_DENIED') || 
-                 errStr.includes('404') || errStr.includes('NOT_FOUND') ||
-                 errStr.includes('429')) {
-                console.warn(`Pro model failed, falling back to Flash Image. Error: ${e.message}`);
+             console.warn(`Pro model failed (${e.message}), falling back to Flash Image.`);
+             try {
+                // Fallback to Flash Image which is faster/cheaper but less detailed
                 imageResponse = await generateImage('gemini-2.5-flash-image');
-             } else {
-                throw e;
+             } catch (fallbackError) {
+                console.error("Fallback image generation also failed", fallbackError);
+                return undefined;
              }
         }
 
+        // Correctly extract image with dynamic mimeType
         for (const part of imageResponse?.candidates?.[0]?.content?.parts || []) {
             if (part.inlineData) {
-                return `data:image/png;base64,${part.inlineData.data}`;
+                const mimeType = part.inlineData.mimeType || 'image/png';
+                return `data:${mimeType};base64,${part.inlineData.data}`;
             }
         }
     } catch (imgError) {
