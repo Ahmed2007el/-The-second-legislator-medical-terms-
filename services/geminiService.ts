@@ -38,9 +38,10 @@ export const generateMedicalIllustration = async (
             
             Guidelines:
             1. **Translation**: If the term "${term}" is not in English, translate it to English first.
-            2. **Style**: "Classic scientific medical diagram, pen and ink style, clean white background".
+            2. **Style**: "High-quality medical vector illustration, clean lines, educational anatomy chart, white background, scientific accuracy, Netter style but digital and clean, no blood, no gore."
             3. **Safety**: "Anatomical schema only, NO blood, NO realistic gore, educational purpose".
-            4. **Focus**: Isolated structure with clear leader lines if applicable.
+            4. **Negative Prompt**: "Avoid: photorealistic flesh, blood, open wounds, surgical gore, disturbing imagery."
+            5. **Focus**: Isolated structure with clear leader lines if applicable.
             `;
         } else {
             descriptionPrompt += `
@@ -48,8 +49,9 @@ export const generateMedicalIllustration = async (
             
             Guidelines:
             1. **Translation**: If the term "${term}" is not in English, translate it to English first.
-            2. **Style**: "Futuristic medical art, translucent glowing materials, blue and teal color palette, 3D render".
+            2. **Style**: "3D anatomical render, translucent medical model style, blue and grey aesthetic, clean studio lighting, high detail, educational purpose, no visceral textures."
             3. **Safety**: "Abstract representation, clean, sterile, NO blood, NO photorealism".
+            4. **Negative Prompt**: "Avoid: photorealistic flesh, blood, open wounds, surgical gore, disturbing imagery."
             `;
         }
 
@@ -75,6 +77,9 @@ export const generateMedicalIllustration = async (
         
         // Clean up the prompt string
         enhancedPrompt = enhancedPrompt.replace(/^Here is (the|a) prompt:?\s*/i, '').replace(/^Prompt:\s*/i, '').replace(/"/g, '');
+        
+        // Append negative safety markers explicitly
+        enhancedPrompt += " --no blood --no gore --no photorealistic flesh --no open wounds";
 
         // Step B: Generate the image
         const generateImage = async (modelName: string) => {
@@ -116,6 +121,7 @@ export const generateMedicalIllustration = async (
                 return `data:${mimeType};base64,${part.inlineData.data}`;
             }
         }
+        return undefined;
     } catch (imgError) {
         console.error("Image generation failed:", imgError);
         return undefined;
