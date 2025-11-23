@@ -1,10 +1,15 @@
+
 export type Language = 'en' | 'ar';
+export type ImageMode = 'ai' | 'textbook';
 
 export interface SearchResult {
   term: string;
   explanation: string;
   sources?: { title: string; uri: string }[];
-  imageUrl?: string;
+  images: {
+    textbook?: string;
+    ai?: string;
+  };
   timestamp: number;
 }
 
@@ -30,4 +35,5 @@ export interface AppState {
   chatMessages: ChatMessage[];
   history: HistoryItem[];
   isApiKeyModalOpen: boolean;
+  imageMode: ImageMode;
 }

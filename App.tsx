@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Search, 
@@ -11,11 +12,16 @@ import {
   ArrowRight,
   ArrowLeft,
   Image as ImageIcon,
-  ExternalLink
+  ExternalLink,
+  Bot,
+  RefreshCw,
+  Sparkles,
+  Zap,
+  Activity
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
-import { AppState, SearchResult, ChatMessage, HistoryItem, Language } from './types';
-import { searchMedicalTerm, sendChatMessage } from './services/geminiService';
+import { AppState, SearchResult, ChatMessage, HistoryItem, Language, ImageMode } from './types';
+import { searchMedicalTerm, sendChatMessage, generateMedicalIllustration } from './services/geminiService';
 import { ApiKeyModal } from './components/ApiKeyModal';
 
 const App: React.FC = () => {
@@ -27,6 +33,9 @@ const App: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [chatLoading, setChatLoading] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [imageMode, setImageMode] = useState<ImageMode>('textbook');
+  const [imageLoading, setImageLoading] = useState(false);
+  const [refinementPrompt, setRefinementPrompt] = useState('');
 
   // Core Data
   const [result, setResult] = useState<SearchResult | null>(null);
@@ -69,9 +78,13 @@ const App: React.FC = () => {
     setLoading(true);
     setResult(null);
     setMessages([]); 
+    setRefinementPrompt('');
+    
+    // Reset image mode to textbook on new search generally, or keep user preference?
+    // Keeping user preference is better UX usually, but let's stick to current state.
 
     try {
-      const data = await searchMedicalTerm(apiKey, searchTerm, language);
+      const data = await searchMedicalTerm(apiKey, searchTerm, language, imageMode);
       const newResult = data as SearchResult;
       setResult(newResult);
       
@@ -97,6 +110,60 @@ const App: React.FC = () => {
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     executeSearch(query);
+  };
+
+  const handleImageModeChange = (mode: ImageMode) => {
+    if (mode === imageMode) return;
+    setImageMode(mode);
+  };
+
+  const handleRegenerateImage = async () => {
+    if (!result || !apiKey) return;
+    setImageLoading(true);
+    try {
+        const url = await generateMedicalIllustration(apiKey, result.term, imageMode, refinementPrompt);
+        setResult(prev => {
+            if (!prev) return null;
+            return {
+                ...prev,
+                images: {
+                    ...prev.images,
+                    [imageMode]: url
+                }
+            };
+        });
+    } catch (e) {
+        console.error("Failed to regenerate image", e);
+        alert(language === 'ar' ? 'فشل إنشاء الصورة' : 'Failed to generate image');
+    } finally {
+        setImageLoading(false);
+    }
+  };
+
+  const handleRefineImage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!result || !apiKey || !refinementPrompt.trim()) return;
+
+    setImageLoading(true);
+    try {
+        const url = await generateMedicalIllustration(apiKey, result.term, imageMode, refinementPrompt.trim());
+        setResult(prev => {
+            if (!prev) return null;
+            return {
+                ...prev,
+                images: {
+                    ...prev.images,
+                    [imageMode]: url
+                }
+            };
+        });
+        setRefinementPrompt(''); 
+    } catch (e) {
+        console.error("Failed to refine image", e);
+        alert(language === 'ar' ? 'فشل تحديث الصورة' : 'Failed to update image');
+    } finally {
+        setImageLoading(false);
+    }
   };
 
   const handleChatSend = async (e: React.FormEvent) => {
@@ -165,22 +232,42 @@ const App: React.FC = () => {
     chatTitle: isRtl ? 'مساعد الذكاء الاصطناعي' : 'AI Assistant',
     chatPlaceholder: isRtl ? 'اسأل شيئاً عن هذا المصطلح...' : 'Ask anything about this term...',
     settings: isRtl ? 'الإعدادات' : 'Settings',
+    modeTextbook: isRtl ? 'كتب التشريح (دقيق)' : 'Anatomy Books (Accurate)',
+    modeAI: isRtl ? 'فن ذكي (إبداعي)' : 'AI Art (Creative)',
+    refinePlaceholder: isRtl ? 'اطلب تعديلاً على الصورة (مثلاً: أضف تسميات، أظهر من الجانب...)' : 'Request changes (e.g., Add labels, Side view...)',
+    updateImage: isRtl ? 'تحديث' : 'Update',
+    regenerate: isRtl ? 'إعادة إنشاء' : 'Regenerate',
+    generateBtn: isRtl ? 'إنشاء صورة لهذا الوضع' : 'Generate Image for this Mode',
+    noImageYet: isRtl ? 'لا توجد صورة لهذا الوضع بعد' : 'No image generated for this mode yet'
   };
+
+  // Determine current image to display
+  const currentImageUrl = result?.images?.[imageMode];
 
   return (
     <div className={`min-h-screen bg-slate-50 text-slate-900 font-sans ${isRtl ? 'font-arabic' : ''}`} dir={isRtl ? 'rtl' : 'ltr'}>
       <ApiKeyModal isOpen={isApiKeyModalOpen} onSave={handleSaveApiKey} language={language} />
 
       {/* Header */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm/50 backdrop-blur-md bg-white/90">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-medical-600 rounded-lg flex items-center justify-center text-white">
-              <BookOpen size={20} />
+          <div className="flex items-center gap-3">
+            {/* New Fun Logo */}
+            <div className="relative group cursor-pointer" onClick={() => {setResult(null); setQuery('');}}>
+                <div className="absolute -inset-1 bg-gradient-to-r from-medical-400 to-indigo-500 rounded-xl blur opacity-25 group-hover:opacity-60 transition duration-500"></div>
+                <div className="relative w-10 h-10 bg-gradient-to-br from-medical-500 to-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg transform transition-transform group-hover:scale-105 group-hover:rotate-3">
+                     <Activity size={22} className="text-white/90" />
+                     <Sparkles size={10} className="absolute top-1.5 right-1.5 text-yellow-300 animate-pulse" />
+                </div>
             </div>
-            <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-medical-700 to-medical-500">
-              {strings.title}
-            </h1>
+            
+            <div className="flex flex-col">
+                <h1 className="text-xl font-bold tracking-tight text-slate-900 leading-none">
+                    <span className="text-slate-800">Medi</span>
+                    <span className="text-transparent bg-clip-text bg-gradient-to-r from-medical-500 to-indigo-600">Lex</span>
+                </h1>
+                <span className="text-[10px] font-semibold text-slate-400 tracking-widest uppercase ml-0.5">Medical AI</span>
+            </div>
           </div>
 
           <div className="flex items-center gap-3">
@@ -208,14 +295,15 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      <div className="flex max-w-7xl mx-auto">
-        {/* Sidebar History (Desktop: Sticky, Mobile: Fixed Overlay) */}
+      <div className="flex max-w-7xl mx-auto relative">
+        {/* Sidebar History */}
         <aside 
+          key={language}
           className={`
-            fixed lg:sticky top-0 lg:top-16 left-0 h-full lg:h-[calc(100vh-4rem)] 
-            w-72 bg-white border-r border-slate-200 z-40 transform transition-transform duration-300 ease-in-out
+            fixed lg:sticky top-0 lg:top-16 h-full lg:h-[calc(100vh-4rem)] 
+            w-72 bg-white border-slate-200 z-40 transform transition-transform duration-300 ease-in-out
+            ${isRtl ? 'right-0 border-l' : 'left-0 border-r'}
             ${showHistory ? 'translate-x-0' : (isRtl ? 'translate-x-full lg:translate-x-0' : '-translate-x-full lg:translate-x-0')}
-            ${isRtl ? 'right-0 lg:right-auto border-l lg:border-r-0 lg:border-l' : ''}
           `}
         >
           <div className="p-4 h-full flex flex-col">
@@ -247,14 +335,14 @@ const App: React.FC = () => {
               )}
             </div>
           </div>
-          {/* Overlay for mobile when sidebar is open */}
-          {showHistory && (
+        </aside>
+
+        {showHistory && (
              <div 
-               className="fixed inset-0 bg-black/20 z-[-1] lg:hidden backdrop-blur-sm"
+               className="fixed inset-0 bg-black/20 z-30 lg:hidden backdrop-blur-sm"
                onClick={() => setShowHistory(false)}
              />
-          )}
-        </aside>
+        )}
 
         {/* Main Content */}
         <main className="flex-1 min-h-[calc(100vh-4rem)] p-4 lg:p-8 w-full max-w-full">
@@ -262,14 +350,26 @@ const App: React.FC = () => {
           {/* Search Hero */}
           <div className={`max-w-3xl mx-auto transition-all duration-500 ${result ? 'mt-0' : 'mt-20 lg:mt-32'}`}>
             {!result && (
-                <div className="text-center mb-8">
-                    <h2 className="text-3xl lg:text-4xl font-bold text-slate-800 mb-3">{strings.title}</h2>
-                    <p className="text-slate-500 text-lg">{strings.subtitle}</p>
+                <div className="text-center mb-10">
+                    <div className="flex justify-center mb-6">
+                        <div className="relative group">
+                            <div className="absolute -inset-2 bg-gradient-to-r from-medical-400 to-indigo-500 rounded-3xl blur-lg opacity-30 group-hover:opacity-60 transition duration-700"></div>
+                            <div className="relative w-24 h-24 bg-gradient-to-br from-medical-500 to-indigo-600 rounded-3xl flex items-center justify-center text-white shadow-2xl transform transition-transform group-hover:scale-105 group-hover:-rotate-2">
+                                <Activity size={48} className="text-white/95" />
+                                <Sparkles size={24} className="absolute top-3 right-3 text-yellow-300 animate-pulse" />
+                            </div>
+                        </div>
+                    </div>
+                    <h2 className="text-4xl lg:text-5xl font-extrabold text-slate-900 mb-4 tracking-tight">
+                        <span className="text-slate-800">Medi</span>
+                        <span className="text-transparent bg-clip-text bg-gradient-to-r from-medical-500 to-indigo-600">Lex</span>
+                    </h2>
+                    <p className="text-slate-500 text-lg lg:text-xl max-w-lg mx-auto leading-relaxed">{strings.subtitle}</p>
                 </div>
             )}
 
-            <form onSubmit={handleSearch} className="relative shadow-lg rounded-2xl">
-              <div className="absolute top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none p-4">
+            <form onSubmit={handleSearch} className="relative shadow-xl shadow-medical-500/10 rounded-2xl group">
+              <div className="absolute top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none p-4 group-focus-within:text-medical-500 transition-colors">
                 <Search size={22} />
               </div>
               <input 
@@ -277,12 +377,12 @@ const App: React.FC = () => {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder={strings.searchPlaceholder}
-                className={`w-full bg-white text-lg p-4 rounded-2xl border-2 border-transparent focus:border-medical-500 outline-none transition-all ${isRtl ? 'pr-12 pl-32' : 'pl-12 pr-32'}`}
+                className={`w-full bg-white text-lg p-5 rounded-2xl border-2 border-transparent focus:border-medical-500 outline-none transition-all placeholder:text-slate-400 ${isRtl ? 'pr-12 pl-36' : 'pl-12 pr-36'}`}
               />
               <button 
                 type="submit" 
                 disabled={loading || !apiKey}
-                className={`absolute top-2 bottom-2 bg-medical-600 hover:bg-medical-700 text-white px-6 rounded-xl font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 ${isRtl ? 'left-2' : 'right-2'}`}
+                className={`absolute top-2.5 bottom-2.5 bg-gradient-to-r from-medical-600 to-medical-500 hover:from-medical-700 hover:to-medical-600 text-white px-8 rounded-xl font-bold shadow-md hover:shadow-lg transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 ${isRtl ? 'left-2.5' : 'right-2.5'}`}
               >
                 {loading ? (
                     <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -392,38 +492,113 @@ const App: React.FC = () => {
 
               {/* Right Column: Illustration */}
               <div className="lg:col-span-5">
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden sticky top-24">
-                  <div className="aspect-[4/3] bg-slate-100 relative group">
-                    {result.imageUrl ? (
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden sticky top-24 flex flex-col">
+                  {/* Image Controls Header */}
+                  <div className="p-3 border-b border-slate-100 bg-slate-50 flex gap-2">
+                     <div className="flex bg-white rounded-lg p-1 border border-slate-200 flex-1 shadow-sm">
+                        <button 
+                            onClick={() => handleImageModeChange('textbook')}
+                            className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-md text-xs font-medium transition-all ${
+                                imageMode === 'textbook' 
+                                ? 'bg-medical-100 text-medical-700 shadow-sm ring-1 ring-medical-200' 
+                                : 'text-slate-500 hover:bg-slate-50'
+                            }`}
+                        >
+                            <BookOpen size={14} />
+                            {strings.modeTextbook}
+                        </button>
+                        <button 
+                            onClick={() => handleImageModeChange('ai')}
+                            className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-md text-xs font-medium transition-all ${
+                                imageMode === 'ai' 
+                                ? 'bg-indigo-100 text-indigo-700 shadow-sm ring-1 ring-indigo-200' 
+                                : 'text-slate-500 hover:bg-slate-50'
+                            }`}
+                        >
+                            <Bot size={14} />
+                            {strings.modeAI}
+                        </button>
+                     </div>
+
+                     <button 
+                        onClick={handleRegenerateImage}
+                        disabled={imageLoading}
+                        className="bg-white hover:bg-slate-50 text-slate-600 border border-slate-200 rounded-lg w-10 flex items-center justify-center shadow-sm transition-all active:scale-95 hover:border-medical-300 hover:text-medical-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                        title={strings.regenerate}
+                     >
+                        <RefreshCw size={18} className={imageLoading ? "animate-spin" : ""} />
+                     </button>
+                  </div>
+
+                  <div className="aspect-[4/3] bg-slate-100 relative group border-b border-slate-100">
+                    {currentImageUrl && !imageLoading ? (
                         <img 
-                            src={result.imageUrl} 
+                            src={currentImageUrl} 
                             alt={`Illustration of ${result.term}`}
-                            className="w-full h-full object-cover transition-transform duration-700 hover:scale-105"
+                            className="w-full h-full object-cover"
                         />
                     ) : (
-                        <div className="w-full h-full flex flex-col items-center justify-center text-slate-400">
-                             {loading ? (
-                                <div className="text-center">
-                                    <div className="w-8 h-8 border-2 border-medical-500 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-                                    <span className="text-sm">Generating illustration...</span>
+                        <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 bg-slate-50">
+                             {loading || imageLoading ? (
+                                <div className="text-center px-4">
+                                    <div className="w-8 h-8 border-2 border-medical-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                                    <span className="text-sm font-medium text-slate-500 animate-pulse">
+                                        {imageMode === 'textbook' ? (isRtl ? 'جاري البحث والرسم العلمي...' : 'Researching & Drawing...') : (isRtl ? 'جاري التخيل...' : 'Dreaming up image...')}
+                                    </span>
                                 </div>
                              ) : (
-                                <div className="flex flex-col items-center gap-2">
-                                    <ImageIcon size={32} />
-                                    <span className="text-sm">No illustration available</span>
+                                <div className="flex flex-col items-center gap-3 p-6 text-center">
+                                    <div className="bg-slate-100 p-3 rounded-full">
+                                        <ImageIcon size={32} className="text-slate-400" />
+                                    </div>
+                                    <p className="text-sm text-slate-500 max-w-[200px]">
+                                        {strings.noImageYet}
+                                    </p>
+                                    <button 
+                                        onClick={handleRegenerateImage}
+                                        className="text-sm bg-medical-50 hover:bg-medical-100 text-medical-600 px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2"
+                                    >
+                                        <Zap size={14} />
+                                        {strings.generateBtn}
+                                    </button>
                                 </div>
                              )}
                         </div>
                     )}
-                    {result.imageUrl && (
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
-                            <p className="text-white text-sm font-medium">AI Generated Medical Illustration</p>
+                    {currentImageUrl && !imageLoading && (
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
+                            <p className="text-white text-xs font-medium flex items-center gap-2">
+                                <Sparkles size={12} className="text-yellow-400" />
+                                {imageMode === 'textbook' ? 'Scientific Illustration' : 'AI Artistic Render'}
+                            </p>
                         </div>
                     )}
                   </div>
-                  <div className="p-4">
-                     <p className="text-xs text-slate-400 text-center italic">
-                        * Illustrations are generated by AI for educational purposes and may not be 100% anatomically perfect.
+
+                  {/* Refinement Box */}
+                  <div className="p-3 bg-slate-50/50">
+                     <form onSubmit={handleRefineImage} className="relative">
+                        <input
+                            type="text"
+                            value={refinementPrompt}
+                            onChange={(e) => setRefinementPrompt(e.target.value)}
+                            placeholder={strings.refinePlaceholder}
+                            className="w-full text-sm p-3 pr-10 border border-slate-200 rounded-lg focus:ring-1 focus:ring-medical-500 focus:border-medical-500 outline-none bg-white placeholder-slate-400"
+                        />
+                        <button 
+                            type="submit"
+                            disabled={imageLoading || !refinementPrompt.trim()}
+                            className={`absolute top-1/2 -translate-y-1/2 p-1.5 text-medical-600 hover:bg-medical-50 rounded-md transition-colors disabled:opacity-40 ${isRtl ? 'left-2' : 'right-2'}`}
+                            title={strings.updateImage}
+                        >
+                            {imageLoading ? <RefreshCw size={16} className="animate-spin" /> : <Send size={16} />}
+                        </button>
+                     </form>
+                  </div>
+                  
+                  <div className="px-4 py-2 bg-white">
+                     <p className="text-[10px] text-slate-400 text-center italic">
+                        * Illustrations are AI-generated for educational purposes.
                      </p>
                   </div>
                 </div>
