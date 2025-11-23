@@ -1,0 +1,5 @@
+{
+  "name": "MediLex AI",
+  "description": "A bilingual (English/Arabic) medical terminology dictionary that uses Gemini to provide scientific explanations, illustrations, and an interactive chat assistant.",
+  "requestFramePermissions": []
+}
