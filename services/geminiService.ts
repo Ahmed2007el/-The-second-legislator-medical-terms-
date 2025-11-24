@@ -29,23 +29,23 @@ export const generateMedicalIllustration = async (
     const ai = getClient(apiKey);
     try {
         // Step A: Generate a descriptive prompt for the image model
-        // We ask Gemini to translate and optimize the prompt to avoid safety triggers (gore).
         let descriptionPrompt = `You are a medical visualization expert. `;
         
         if (mode === 'textbook') {
-            // STRATEGY CHANGE: Use Black & White Line Art (Gray's Anatomy Style).
-            // This bypasses "Gore" filters because there is no red/pink color (blood/flesh).
+            // STRATEGY: Use Black & White Vintage Line Art (Gray's Anatomy Style).
+            // This bypasses "Gore" filters by eliminating red/pink/flesh colors.
             descriptionPrompt += `
-            Task: Create a prompt for a CLASSIC VINTAGE ANATOMY BOOK illustration for: "${term}".
+            Task: Create a prompt for a CLASSIC VINTAGE ANATOMY TEXTBOOK PAGE illustration for: "${term}".
             
             Guidelines:
             1. **Translation**: If the term "${term}" is not in English, translate it to English first.
-            2. **Style**: "Vintage medical illustration, black and white ink drawing, cross-hatching, engraving style, Henry Gray style, white paper background, high contrast, clean lines."
-            3. **Safety**: "Scientific diagram, technical drawing, NO organic textures, NO realistic flesh, NO blood, NO color".
+            2. **Style**: "Vintage medical illustration, black and white ink drawing, cross-hatching, engraving style, Henry Gray style, parchment background, high contrast, clean lines, scientific labeling."
+            3. **Safety**: "Technical diagram, NO organic textures, NO realistic flesh, NO blood, NO color".
             4. **Negative Prompt**: "Avoid: color, photography, realism, blood, red, pink, flesh, gore, blurred, distorted text."
-            5. **Focus**: Detailed anatomical structure with clear separation.
+            5. **Focus**: Detailed anatomical structure with clear separation like a textbook diagram.
             `;
         } else {
+            // AI/Artistic Mode: Abstract but safe
             descriptionPrompt += `
             Task: Create a prompt for an abstract, artistic medical visualization for: "${term}".
             
@@ -77,10 +77,11 @@ export const generateMedicalIllustration = async (
         }
         
         // Clean up the prompt string
-        enhancedPrompt = enhancedPrompt.replace(/^Here is (the|a) prompt:?\s*/i, '').replace(/^Prompt:\s*/i, '').replace(/"/g, '');
+        enhancedPrompt = enhancedPrompt.replace(/^Here is (the|a) prompt:?\s*/i, '').replace(/^Prompt:\s*/i, '').replace(/"/g, '').trim();
         
-        // Append negative safety markers explicitly
-        enhancedPrompt += " --no blood --no gore --no photorealistic flesh --no color --no red";
+        // Append negative safety markers explicitly to EVERY request
+        // This is the most critical part for safety
+        enhancedPrompt += " --no blood --no gore --no photorealistic flesh --no color --no red --no pink";
 
         // Step B: Generate the image
         const generateImage = async (modelName: string) => {
@@ -97,21 +98,20 @@ export const generateMedicalIllustration = async (
 
         let imageResponse;
         try {
-            // Use Flash Image for speed and better availability (avoids 403 Permission Denied on Pro)
+            // Use Flash Image for speed and better availability
             imageResponse = await generateImage('gemini-2.5-flash-image');
         } catch (e: any) {
              console.warn(`Flash model failed (${e.message}), trying Pro as backup.`);
              try {
-                // Only try Pro if Flash fails (though Pro might fail with 403 too depending on key)
+                // Only try Pro if Flash fails
                 imageResponse = await generateImage('gemini-3-pro-image-preview');
              } catch (fallbackError) {
                 console.error("All image generation attempts failed", fallbackError);
-                // Return undefined instead of throwing to prevent app crash
                 return undefined;
              }
         }
 
-        // Correctly extract image with dynamic mimeType
+        // Correctly extract image
         for (const part of imageResponse?.candidates?.[0]?.content?.parts || []) {
             if (part.inlineData) {
                 const mimeType = part.inlineData.mimeType || 'image/png';
@@ -121,7 +121,6 @@ export const generateMedicalIllustration = async (
         return undefined;
     } catch (imgError) {
         console.error("Image generation failed (Global Catch):", imgError);
-        // Ensure we never crash the app due to image failure
         return undefined;
     }
 };
@@ -134,7 +133,6 @@ export const searchMedicalTerm = async (
 ): Promise<Partial<SearchResult>> => {
   const ai = getClient(apiKey);
   
-  // Enforce output language based on the UI setting, not the input term language
   const prompt = language === 'ar' 
     ? `أنت موسوعة طبية شاملة.
        المهمة: شرح المصطلح الطبي التالي: "${term}".
@@ -181,6 +179,7 @@ export const searchMedicalTerm = async (
 
     const explanation = textResponse.text || (language === 'ar' ? "لم يتم العثور على شرح." : "No explanation found.");
     
+    // Extract grounding sources
     const sources = textResponse.candidates?.[0]?.groundingMetadata?.groundingChunks
       ?.map((chunk: any) => chunk.web ? { title: chunk.web.title, uri: chunk.web.uri } : null)
       .filter((source: any) => source !== null) || [];
